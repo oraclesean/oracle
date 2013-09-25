@@ -1,0 +1,11 @@
+# Sample file for passing different parameters to backup_rman.sh cron jobs for different databases, backup types.
+# This is useful if you want to send email to different users for each database, have different retention parameters,
+# backup locations, etc.
+#DB1
+-d db1 -l /oracle/backup/db1/db -p db1_full -t db1_full -b incremental -i 0 -S dba@company.com,me@mail.com --spfile -x 14
+-d db1 -l /oracle/backup/db1/db -p db1_incr -t db1_incr -b incremental -i 1 -S dba@company.com,me@mail.com --spfile -x 14 --ic 
+-d db1 -l /oracle/backup/db1/db -p db1_arch -t db1_arch -b archivelog --nocrosscheck --nodeleteexpired --nodeleteobsolete
+#DB2
+-d db2 -l /oracle/backup/db2/db -p db2_full -t db2_full -b incremental -i 0 -S dba@company.com,me@mail.com --spfile -x 14
+-d db2 -l /oracle/backup/db2/db -p db2_incr -t db2_incr -b incremental -i 1 -S dba@company.com,me@mail.com --spfile -x 14 --ic
+-d db2 -l /oracle/backup/db2/db -p db2_arch -t db2_arch -b archivelog --nocrosscheck --nodeleteexpired --nodeleteobsolete
