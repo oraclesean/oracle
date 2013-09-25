@@ -1,0 +1,4 @@
+# Sample crontab for running backup_rman.sh
+00 18 * * 0   /home/oracle/scripts/backup_rman.sh `cat /home/oracle/scripts/rman_params.txt` `cat /home/oracle/scripts/rman_db_params.txt | grep mydb | grep full | grep -v \# ` > /var/tmp/backup_rman.mydb.full.log
+00 18 * * 1-6 /home/oracle/scripts/backup_rman.sh `cat /home/oracle/scripts/rman_params.txt` `cat /home/oracle/scripts/rman_db_params.txt | grep mydb | grep incr | grep -v \# ` > /var/tmp/backup_rman.mydb.incr.log 
+00 * * * *    /home/oracle/scripts/backup_rman.sh `cat /home/oracle/scripts/rman_params.txt` `cat /home/oracle/scripts/rman_db_params.txt | grep mydb | grep arch | grep -v \# ` > /var/tmp/backup_rman.mydb.arch.log 
