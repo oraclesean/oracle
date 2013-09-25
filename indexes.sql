@@ -1,0 +1,57 @@
+/*  indexes.sql
+    Copyright (C) 2001, 2013 Sean Scott oracle_sean@mac.com
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+*/
+
+--Comprehensive report of all indexes for a given table.
+set lines 265
+column column_name format a30
+column segment_size format 999,999 heading SIZE
+column tablespace_name format a25
+column column_expression format a40 heading ''
+column clustering_factor heading CLUSTERING
+break on index_name on segment_size on uniqueness on index_type on visibility on tablespace_name on pct_free on blevel on leaf_blocks on distinct_keys on num_rows on clustering_factor
+  select c.index_name
+,        s.bytes/1024/1024        as segment_size
+,        i.uniqueness
+,        i.index_type
+,        i.visibility
+,        i.tablespace_name
+,        i.pct_free
+,        i.blevel
+,        i.leaf_blocks
+,        i.distinct_keys
+,        i.num_rows
+,        i.clustering_factor
+,        c.column_name
+,        e.column_expression
+    from dba_ind_columns           c
+,        dba_ind_expressions       e
+,        dba_segments              s
+,        dba_indexes               i
+   where i.table_owner             = upper('&owner')
+     and i.table_name              = upper('&table')
+     and i.owner                   = s.owner
+     and i.index_name              = s.segment_name
+     and i.owner                   = c.index_owner
+     and i.index_name              = c.index_name
+     and s.segment_type            = 'INDEX'
+     and c.index_owner             = e.index_owner (+)
+     and c.index_name              = e.index_name (+)
+     and c.column_position         = e.column_position (+)
+order by i.index_name
+,        c.column_position;
+clear breaks
