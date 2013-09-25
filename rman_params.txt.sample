@@ -1,0 +1,2 @@
+# Sample parameter file for setting global RMAN backup parameters in backup_rman.sh. Remove these comments before use.
+-f 4 -r 2 --maxopenfiles 4 --compress --deletearchive --trace -e alert_me@company.com
