@@ -1,4 +1,4 @@
-/*  functions.sh
+/*  free.sql
     Copyright (C) 2001, 2013 Sean Scott oracle_sean@mac.com
 
     This program is free software; you can redistribute it and/or modify
