@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #    backup_rman.sh
-#    Copyright (C) 2004  Sean Scott
+#    Copyright (C) 2004. 2013 Sean Scott
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -16,12 +16,6 @@
 #    You should have received a copy of the GNU General Public License along
 #    with this program; if not, write to the Free Software Foundation, Inc.,
 #    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
-
-#    Copyright (C) 2013 Sean Scott oracle_sean@mac.com
-
-#    backup_rman.sh comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
-#    This is free software, and you are welcome to redistribute it
-#    under certain conditions; type `show c' for details.
 
 # This is a highly adaptable RMAN backup script for Oracle 10g/11g databases.
 # It facilitates a variety of backup options and was designed to be a single
