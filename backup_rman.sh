@@ -53,6 +53,13 @@ fi
 error()
 {
   echo "$@" 1>&2
+  if [ -n "$email_failure" ]
+    then
+        if [ -n "$logmail" ]
+          then mailto $email_failure $logmail "BACKUP FAILURE while $phase of $sid database on $machine" FILE
+          else mailto $email_failure "$1" "BACKUP FAILURE while $phase of $sid database on $machine"
+        fi
+  fi
   exit 1
 }
 
@@ -295,9 +302,9 @@ do_backup_script()
   then echo "sql \"create pfile=''$backdir/$basename.node$node.spfile'' from spfile\";" | tee -a $rmanscript
   fi
 
-  # Create a text controlfile backup. Later, we'll find this file and rename/move it to $backdir.
+  # Create a text controlfile backup. 
   if [ "$trace" ]
-    then echo "sql 'alter database backup controlfile to trace';" | tee -a $rmanscript
+    then echo "sql \"alter database backup controlfile to trace as ''$backdir/$basename.trace.ctl''\";" | tee -a $rmanscript
   fi
 
   # If this is already an spfile backup, disregard the --spfile option.
@@ -365,7 +372,7 @@ do_validation_script()
 do_backup()
 {
   now=`date '+%m/%d/%y %H:%M:%S'`
-  echo "$phase of database $mysid beginning at $now." | tee -a $logfile $logmail
+  echo "Backup of database $mysid beginning at $now." | tee -a $logfile $logmail
 
   # Send output from RMAN to its own log that we can tee to the individual log files.
   logrman=$(mktemp)
@@ -377,11 +384,10 @@ do_backup()
   exit_status=$?
   now=`date '+%m/%d/%y %H:%M:%S'`
   cat $logrman | tee -a $logfile $logmail
-  message="$phase of database $mysid complete at $now." | tee -a $logfile $logmail
+  message="Backup of database $mysid complete at $now." | tee -a $logfile $logmail
 
-  if [ $? -ne 0 ]
-  then mailto $email_failure $logmail "FAIL: $phase of $sid database on $machine" FILE
-       error "FAIL: $phase of $sid on $machine - see $backdir/$logfile for details"
+  if [ $exit_status -ne 0 ]
+  then error "Failure while $phase of $sid on $machine - see $backdir/$logfile for details"
   fi
 
   rm $logrman
@@ -504,6 +510,7 @@ do
 done
 shift $[OPTIND-1]
 
+phase="validating command line arguments"
 # Validate command line arguments.
 # You have to have a local backup directory:
 if [ ! "$backdir" ]
@@ -585,11 +592,13 @@ ORAENV_ASK=NO;          export $ORAENV_ASK;
 ORACLE_SID=$sid;        export $ORACLE_SID;
 . $ORACLE_HOME/bin/oraenv
 
+phase="obtaining database status"
 db_status $sid
 if [ $? -ne 0 ]
   then error "The database $sid is not open"
 fi
 
+phase="creating support files"
 # Create the file extensions
 now=`date '+%y-%m-%d_%H-%M-%S'`
 
@@ -623,6 +632,7 @@ if [ $? -ne 0 ]
   then error "Could not create the restore script file"
 fi
 
+phase="setting RMAN backup type"
 if [ ! "$backuptype" ]
   then error "A backup type (full, incremental, copy, archivelog or spfile) must be supplied"
 elif [ "$backuptype" != "incremental" -a "$backuptype" != "full" -a "$backuptype" != "copy" -a "$backuptype" != "archivelog" -a "$backuptype" != "spfile" ]
@@ -633,10 +643,13 @@ if [ "$backuptype" != "incremental" -a "$id" ]
   then error "A differential backup type is only valid for incremental backups"
 fi
 
+phase="setting database environment"
 do_dbenv
 
+phase="preparing for backup"
 do_backup_script
 
+phase="capturing pre-backup environment"
 # Send full diagnostic information to the logfile, but not the email log.
 echo " " | tee -a $logfile
 if [ "$summary" != "summary" ]
@@ -659,24 +672,15 @@ fi
 # If this is not a preview (just write files but don't do a backup) then we run the backup.
 if [ ! "$preview" ]
   then script=$rmanscript
-       phase=Backup
+       phase="performing backup"
        do_backup
-
-       # If a "backup controlfile to trace" was requested:
-       # 1. Find the trace file;
-       # 2. Remove the trm metadata file;
-       # 3. Move the trace file to the backup directory and rename it to something meaningful.
-       if [ "$trace" ]
-         then grep -l "Set #1. NORESETLOGS case" $tracedir/*.trc | gawk -F. -v path=$backdir/$basename '{print "rm "$1.".trm; mv "$1".trc " path ".trace.ctl"}' | xargs -i -t sh -c "{}"
-         if [ $? == 1 ]
-           then error "There was a problem moving the controlfile trace."
-         fi
-       fi
   else echo "Running in preview mode." | tee -a $logfile $logmail
+       phase="performing backup preview"
 fi
 
 if [ "$validate" ]
-  then validscript=$backdir/$basename.validate.rman
+  then phase="performing validation"
+       validscript=$backdir/$basename.validate.rman
        touch $validscript
        if [ $? -ne 0 ]
          then error "Could not create the validation script file"
@@ -686,7 +690,7 @@ if [ "$validate" ]
 
        if [ ! "$preview" ]
          then script=$validscript
-              phase=Validation
+              phase="validating backup"
               do_backup
          else echo "Validation not performed - running in preview mode" | tee -a $logfile $logmail
        fi
@@ -696,9 +700,11 @@ if [ ! "$preview" ]
   then echo " " | tee -a $logfile
 
        if [ "$clean" ]
-         then do_log_cleanup
+         then phase="performing cleanup"
+              do_log_cleanup
        fi
 
+       phase="capturing post-backup environment"
        # Don't write "after backup" diagnostic information for previews.
        if [ "$summary" != "summary" ]
          then echo "User processes in the $sid database after backup:" | tee -a $logfile
