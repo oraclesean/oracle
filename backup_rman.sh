@@ -276,7 +276,7 @@ do_backup_script()
   elif [ "$backuptype" == "copy" ]
   then echo "recover copy of database with tag '$tag';" | tee -a $rmanscript
        echo "backup incremental level $level $inctype" | tee -a $rmanscript
-       echo "tag = '$tagi" | tee -a $rmanscript
+       echo "tag = '$tag'" | tee -a $rmanscript
        echo "filesperset $filespersetdbf $skipreadonly" | tee -a $rmanscript
        echo "database include current controlfile;" | tee -a $rmanscript
        echo "sql 'alter system archive log current';" | tee -a $rmanscript
