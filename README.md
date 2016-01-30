@@ -1,4 +1,4 @@
 oracle
 ======
 
-Oracle database administration scripts
+racle database administration scripts
