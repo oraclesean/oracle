@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #    backup_rman.sh
-#    Copyright (C) 2004. 2013 Sean Scott
+#    Copyright (C) 2004, 2013, 2016 Sean Scott
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 # Disk or tape backup destinations
 # Full, incremental (differential/cumulative), copy, archive log, spfile backup options
 # Multiple channels; channel size limits; channel options
+# Control deletion of archive logs by backup count and age in hours
 # Compression, encryption, optimization, parallelization, validation options
 # Failure and success notification options
 # Pre- and post- backup SQL execution options
@@ -37,7 +38,7 @@
 # Requires $HOME/dbbatch.sh, $DBA/functions.sh
 
 #     Execute batch profile (since crontab's default is to not run .profile)
-. $HOME/dbbatch.sh
+. /mnt/dbscripts/dbbatch.sh
 . $DBA/functions.sh
 
 # See if nawk should be used instead of awk
@@ -67,9 +68,9 @@ usage()
 {
   version
   echo "usage: $PROGRAM -d oracle_sid -b backuptype [-l directory | -T SBT_channel] "
-  echo "                [-aBcefFhHprRsStvx] --catalog --compress --deletearchive --encrypt "
+  echo "                [-acefFhHprRsStvx] --catalog --compress --deletearchive --encrypt "
   echo "                [-i level {--id}] --maxopenfiles files --maxsetsize kbytes "
-  echo "                --nocrosscheck --nodeleteexpired -nodeleteobsolete --preview "
+  echo "                --nocrosscheck --nodeleteexpired --nodeleteobsolete --preview "
   echo "                --skipreadonly --spfile --validate "
   echo " "
   echo "Arguments:"
@@ -80,10 +81,12 @@ usage()
   echo " "
   echo "Optional arguments: "
   echo "   -a channels          channels to allocate for backup operations (default 1) "
+  echo "   -B backup_count      minimum count of backups to device of archive logs before deletion "
   echo "   -c kbytes            channel size limit, in kbytes (default 2GB) "
+  echo "   -C hours             minimum age of archive logs (in hours) before deletion "
   echo "   --catalog string     catalog database connection string or path to file with connection information "
   echo "   --compress           compression backup "
-  echo "   --deletearchive      delete archivelog input "
+  echo "   --deletearchive      delete archivelog input (overrides settings of log backup count and age) "
   echo "   -e email             comma delimited list of emails to be used for failure notification "
   echo "   --encrypt            encrypt backup "
   echo "   -f                   files per backup set, database backups (default 5) "
@@ -116,7 +119,6 @@ usage()
   echo "   --validate           validate backup when complete "
   echo "   -x days              cleanup logs and scripts more than days old "
   echo " "
-
 }
 
 usage_and_exit()
@@ -159,6 +161,27 @@ do_dbenv()
 EOF
   source $dbenv
   rm $dbenv
+}
+
+do_logdelete()
+{
+  if [ "$backdir" ]
+    # We're backing up to disk...
+    then logdest="disk"
+    else logdest="SBT_TAPE"
+  fi
+
+  # Determine if there's a retention count of log backups requested
+  if [ "$logbackupcount" ]
+    then logdeletecount=" backed up $logbackupcount times to $logdest"
+  fi
+
+  # Determine if there's a retention age of log backups requested
+  if [ "$logbackuphours" ]
+    then logdeletehours=" completed before 'sysdate - $logbackuphours / 24'"
+  fi
+
+  logdelete="delete force noprompt expired archivelog all $logdeletecount $logdeletehours;"
 }
 
 do_backup_script()
@@ -238,12 +261,12 @@ do_backup_script()
          echo "allocate channel for maintenance type disk;" | tee -a $rmanscript
          echo "crosscheck backup;" | tee -a $rmanscript
          echo "crosscheck archivelog all;" | tee -a $rmanscript
-    if [ ! "$deleteexpired" ]
-      then echo "delete force noprompt expired backup;" | tee -a $rmanscript
-           echo "delete force noprompt expired archivelog all;" | tee -a $rmanscript
-    fi
-    if [ ! "$deleteobsolete" ]
+    if [ "$deleteobsolete" ]
       then echo "delete force noprompt obsolete;" | tee -a $rmanscript
+    fi
+    if [ "$deleteexpired" ]
+      then echo "delete force noprompt expired backup;" | tee -a $rmanscript
+           echo $logdelete | tee -a $rmanscript
     fi
     echo "release channel;" | tee -a $rmanscript
   fi
@@ -273,15 +296,31 @@ do_backup_script()
        echo "backup filesperset $filespersetarc" | tee -a $rmanscript
        echo "archivelog all $deletearchive;" | tee -a $rmanscript
 
+       if [ "$deleteobsolete" ]
+         then echo "delete force noprompt obsolete;" | tee -a $rmanscript
+       fi
+       if [ "$deleteexpired" ]
+         then echo "delete force noprompt expired backup;" | tee -a $rmanscript
+              echo $logdelete | tee -a $rmanscript
+       fi
+
   elif [ "$backuptype" == "copy" ]
   then echo "recover copy of database with tag '$tag';" | tee -a $rmanscript
        echo "backup incremental level $level $inctype" | tee -a $rmanscript
-       echo "tag = '$tag'" | tee -a $rmanscript
+       echo "tag = '$tagi" | tee -a $rmanscript
        echo "filesperset $filespersetdbf $skipreadonly" | tee -a $rmanscript
        echo "database include current controlfile;" | tee -a $rmanscript
        echo "sql 'alter system archive log current';" | tee -a $rmanscript
        echo "backup filesperset $filespersetarc" | tee -a $rmanscript
        echo "archivelog all $deletearchive;" | tee -a $rmanscript
+
+       if [ "$deleteobsolete" ]
+         then echo "delete force noprompt obsolete;" | tee -a $rmanscript
+       fi
+       if [ "$deleteexpired" ]
+         then echo "delete force noprompt expired backup;" | tee -a $rmanscript
+              echo $logdelete | tee -a $rmanscript
+       fi
 
   elif [ "$backuptype" == "incremental" ]
   then echo "backup incremental level $level $inctype" | tee -a $rmanscript
@@ -292,10 +331,23 @@ do_backup_script()
        echo "backup filesperset $filespersetarc" | tee -a $rmanscript
        echo "archivelog all $deletearchive;" | tee -a $rmanscript
 
+
+       if [ "$deleteobsolete" ]
+         then echo "delete force noprompt obsolete;" | tee -a $rmanscript
+       fi
+       if [ "$deleteexpired" ]
+         then echo "delete force noprompt expired backup;" | tee -a $rmanscript
+              echo $logdelete | tee -a $rmanscript
+       fi
+
   elif [ "$backuptype" == "archivelog" ]
   then echo "sql 'alter system archive log current';" | tee -a $rmanscript
        echo "backup filesperset $filespersetarc" | tee -a $rmanscript
        echo "archivelog all $deletearchive;" | tee -a $rmanscript
+
+       if [ "$deleteexpired" ]
+         then echo $logdelete | tee -a $rmanscript
+       fi
 
   # Allow a backup of just the spfile, useful for each node in a RAC cluster.
   elif [ "$backuptype" == "spfile" ]
@@ -338,10 +390,12 @@ do_validation_script()
   echo "allocate channel for maintenance type disk;" | tee -a $validscript
   echo "list backup $summary;" | tee -a $validscript
   echo "report obsolete;" | tee -a $validscript
-  if [ ! "$deleteobsolete" ]
+  if [ "$deleteobsolete" ]
     then echo "delete force noprompt obsolete;" | tee -a $validscript
-         echo "delete force noprompt expired backup;" | tee -a $validscript
-         echo "delete force noprompt archivelog all;" | tee -a $validscript
+  fi
+  if [ "$deleteexpired" ]
+    then echo "delete force noprompt expired backup;" | tee -a $validscript
+         echo $logdelete | tee -a $validscript
   fi
   echo "release channel;" | tee -a $validscript
   echo "run {" | tee -a $validscript
@@ -401,14 +455,13 @@ do_log_cleanup()
   # .spfile are the SPFILE copies
   # .trace.ctl are the controlfile to trace files
   # .recovery.sh are the recovery scripts
-  # .validate.rman are the RMAN validation scripts 
-  find $backdir/*"$sid"*.log           -mtime +"$clean" -exec rm {} \; > /dev/null 2>&1
-  find $backdir/*"$sid"*.rman          -mtime +"$clean" -exec rm {} \; > /dev/null 2>&1
-  find $backdir/*"$sid"*.spfile        -mtime +"$clean" -exec rm {} \; > /dev/null 2>&1
-  find $backdir/*"$sid"*.trace.ctl     -mtime +"$clean" -exec rm {} \; > /dev/null 2>&1
-  find $backdir/*"$sid"*.recovery.sh   -mtime +"$clean" -exec rm {} \; > /dev/null 2>&1
-  find $backdir/*"$sid"*.validate.rman -mtime +"$clean" -exec rm {} \; > /dev/null 2>&1
+  echo "Performing cleanup of supporting files older than $clean days."
+  echo " "
+  echo "The following files are being removed from the system:"
+  find $backdir -type f -regex ".*\.\(log\|rman\|spfile\|recovery\.sh\|trace\.ctl\)" -mtime +14 -exec ls -l {} \; -delete | tee -a $logfile
+  echo " "
 }
+
 
 # Set up the environment. Define any default values here.
 PROGRAM=`basename $0`
@@ -423,8 +476,8 @@ clean=
 compress=0
 crosscheck=1
 deletearchive=
-deleteexpired=
-deleteobsolete=
+deleteexpired=1
+deleteobsolete=1
 email_failure=
 email_success=
 encrypt=
@@ -432,6 +485,8 @@ filespersetdbf=5
 filespersetarc=50
 inctype=
 level=0
+logbackupcount=
+logbackuphours=
 machine=`uname -n`
 maxopenfiles=1
 maxsetsize=2097150
@@ -460,12 +515,14 @@ validate=
 . functions.sh
 
 # Get command line arguments
-while getoptex "a: b: c: catalog: compress; d: deletearchive; e: encrypt; f: F: h; i: ic; l: maxopenfiles: maxsetsize: nocrosscheck; nodeleteexpired; nodeleteobsolete; o; p: parallel; P: preview; r: R: resync; s: S: skipreadonly; spfile; summary; trace; t: T: v; validate; x: " "$@"
+while getoptex "a: b: B: c: C: catalog: compress; d: deletearchive; e: encrypt; f: F: h; i: ic; l: maxopenfiles: maxsetsize: nocrosscheck; nodeleteexpired; nodeleteobsolete; o; p: parallel; P: preview; r: R: resync; s: S: skipreadonly; spfile; summary; trace; t: T: v; validate; x: " "$@"
 do
   case $OPTOPT in
     a                ) channels="$OPTARG"       ;;
     b                ) backuptype=`fixcase "$OPTARG"` ;;
+    B                ) logbackupcount="$OPTARG" ;;
     c                ) channelsize="$OPTARG"    ;;
+    C                ) logbackuphours="$OPTARG" ;;
     catalog          ) catalog="$OPTARG"        ;;
     compress         ) compress=1               ;;
     d                ) sid="$OPTARG"            ;;
@@ -524,6 +581,16 @@ fi
 is_num $channels
 if [ $? == 1 ]
   then error "Channels to be allocated must be a numeric value"
+fi
+
+is_num $backupcount
+if [ $? == 1 ]
+  then error "Log backup count mut be a numeric value"
+fi
+
+is_num $backuphours
+if [ $? == 1 ]
+  then error "Log age (hours) mut be a numeric value"
 fi
 
 is_num $channelsize
@@ -602,6 +669,15 @@ phase="creating support files"
 # Create the file extensions
 now=`date '+%y-%m-%d_%H-%M-%S'`
 
+# Add a random string to prevent the end of DST from creating duplicate files:
+un=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -n 1)
+
+if [ ! "$prefix" ]
+  then prefix=$sid_backup
+       basename=$PROGRAM.$sid.$now.$un
+  else basename=$prefix.$sid.$now.$un
+fi
+
 if [ ! "$prefix" ]
   then prefix=$sid_backup
        basename=$PROGRAM.$sid.$now
@@ -642,6 +718,9 @@ fi
 if [ "$backuptype" != "incremental" -a "$id" ]
   then error "A differential backup type is only valid for incremental backups"
 fi
+
+phase="setting archivelog deletion policies"
+do_logdelete
 
 phase="setting database environment"
 do_dbenv
